@@ -71,3 +71,37 @@ def convert_obstacles_to_image(obstacles, img_shape):
 obstacles = generate_random_obstacles(10, "circles", [-6, 3], [6, 3])
 img = convert_obstacles_to_image(obstacles, (480, 640))
 plt.imshow(img)
+
+
+class Node():
+    def __init__(self):
+        self.neighbors = []
+    pass
+
+
+class Graph():
+    def __init__(self):
+        self.nodes = {}
+    pass
+
+
+def convert_img_to_graph(img):
+    graph = Graph()
+    for i in range(img.shape[1]):
+        for j in range(img.shape[0]):
+            node = Node()
+            node.x = i
+            node.y = j
+            for pair in [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]:
+                a = i+pair[0]
+                b = j+pair[1]
+                if a >= 0 and a < img.shape[1] and b >= 0 and b < img.shape[0] and img[b, a]*img[j, i] == 1:
+                    node.neighbors.append(np.linalg.norm(pair))
+                else:
+                    node.neighbors.append(10000)
+            graph.nodes[(i, j)] = node
+    return graph
+
+
+graph = convert_img_to_graph(img)
+
