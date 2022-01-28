@@ -56,18 +56,20 @@ def convert_obstacles_to_image(obstacles, img_shape, start_pt, goal_pt):
     for obs in obstacles:
         extent = obs.get_window_extent()
         print(extent)
-        imin = 0 if extent.x0 < xmin else np.argwhere(xs > extent.x0)[0][0]
-        imax = img_shape[1] - \
-            1 if extent.x1 > xmax else np.argwhere(xs > extent.x1)[0][0]
-        jmin = 0 if extent.y0 < ymin else np.argwhere(ys > extent.y0)[0][0]
-        jmax = img_shape[0] - \
-            1 if extent.y1 > ymax else np.argwhere(ys > extent.y1)[0][0]
+        imin = int((min(max(xmin, extent.x0), xmax)-xmin)
+                   * img_shape[1]/(xmax-xmin))
+        imax = int((min(max(xmin, extent.x1), xmax)-xmin)
+                   * img_shape[1]/(xmax-xmin))
+        jmin = int((min(max(ymin, extent.y0), ymax)-ymin)
+                   * img_shape[0]/(ymax-ymin))
+        jmax = int((min(max(ymin, extent.y1), ymax)-ymin)
+                   * img_shape[0]/(ymax-ymin))
         for i in range(imin, imax):
             for j in range(jmin, jmax):
                 if obs.contains_point([xs[i], ys[j]]):
                     img[j, i] = 0
     A = np.array([[img_shape[1]/(xmax-xmin), 0],
-                 [0, img_shape[0]/(ymax-ymin)]])
+                  [0, img_shape[0]/(ymax-ymin)]])
     xscale = img_shape[1]/(xmax-xmin)
     yscale = img_shape[0]/(ymax-ymin)
     new_start = np.array(
@@ -81,7 +83,7 @@ start_pt = np.array([-3, 3])
 goal_pt = np.array([3, -3])
 obstacles = generate_random_obstacles(10, "circles", start_pt, goal_pt)
 img, img_start_pt, img_goal_pt = convert_obstacles_to_image(
-    obstacles, (50, 50), start_pt, goal_pt)
+    obstacles, (100, 100), start_pt, goal_pt)
 plt.imshow(img)
 plt.plot(img_start_pt[0], img_start_pt[1], 'gs')
 plt.plot(img_goal_pt[0], img_goal_pt[1], 'r*')
@@ -93,7 +95,14 @@ class Node():
         self.g = np.Inf
 
     def __lt__(self, other):
-        return (self.g+h_dist(np.array([self.x, self.y]), self.goal)) < (other.g+h_dist(np.array([other.x, other.y]), other.goal))
+        lt = False
+        f1 = self.g+h_dist(np.array([self.x, self.y]), self.goal)
+        f2 = other.g+h_dist(np.array([other.x, other.y]), other.goal)
+        if np.abs(f1-f2) < 0.001:
+            lt = self.g > other.g
+        else:
+            lt = f1 < f2
+        return lt
 
     def __eq__(self, other):
         return self.x == other.x and self.y == other.y
@@ -141,9 +150,9 @@ def a_star(graph, start, goal):
     heapq.heapify(Q)
     curr_node = heapq.heappop(Q)
     while curr_node != goal_node:
-        plt.plot(curr_node.x, curr_node.y, '.k')
-        plt.show()
-        plt.pause(0.01)
+        # plt.plot(curr_node.x, curr_node.y, '.k')
+        # plt.show()
+        # plt.pause(0.0001)
         for pair, weight in zip([[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]], curr_node.neighbors):
             a = curr_node.x + pair[0]
             b = curr_node.y + pair[1]
