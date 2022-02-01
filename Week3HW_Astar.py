@@ -9,7 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import heapq
 import cv2
-
+import time
 
 # %%
 
@@ -93,9 +93,6 @@ def createMap(num_obstacles, size):
     img, img_start_pt, img_goal_pt = convert_obstacles_to_image(
         obstacles, (size, size), start_pt, goal_pt)
     return img, img_start_pt, img_goal_pt
-# plt.imshow(img)
-# plt.plot(img_start_pt[0], img_start_pt[1], 'gs')
-# plt.plot(img_goal_pt[0], img_goal_pt[1], 'r*')
 
 
 # %%
@@ -117,10 +114,13 @@ def loadMap(filename, cells):
 
     return img, img_start_pt, img_goal_pt
 
+# %%
+
 
 # img, img_start_pt, img_goal_pt = createMap(10, 160)
-img, img_start_pt, img_goal_pt = loadMap("20x20_orthogonal_maze.png", 20)
-plt.imshow(img)
+img, img_start_pt, img_goal_pt = loadMap("40x40_orthogonal_maze.png", 40)
+print("img_start_pt", img_start_pt)
+print("img_goal_pt", img_goal_pt)
 
 # %%
 
@@ -192,6 +192,9 @@ def h_parallel_goal_dist(node):
     return np.dot(pos_vec, unit_vec)
 
 
+pairs = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]
+
+
 def convert_img_to_graph(img, h):
     graph = Graph()
     for i in range(img.shape[1]):
@@ -199,7 +202,7 @@ def convert_img_to_graph(img, h):
             node = Node(h)
             node.x = i
             node.y = j
-            for pair in [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]:
+            for pair in pairs:
                 a = i+pair[0]
                 b = j+pair[1]
                 if a >= 0 and a < img.shape[1] and b >= 0 and b < img.shape[0] and img[b, a]*img[j, i] == 1:
@@ -223,7 +226,7 @@ def a_star(graph, start, goal):
     searched = []
     while curr_node != goal_node:
         searched.append([curr_node.x, curr_node.y])
-        for pair, weight in zip([[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]], curr_node.neighbors):
+        for pair, weight in zip(pairs, curr_node.neighbors):
             a = curr_node.x + pair[0]
             b = curr_node.y + pair[1]
             try:
@@ -248,14 +251,19 @@ def a_star(graph, start, goal):
     return graph, np.array(path), np.array(searched), path_length
 
 
-hs = [h_grid_dist, h_hyperbolic_1, h_hyperbolic_2, h_hyperbolic_3]
-hnames = ['grid circle', 'hyperbolic 1', 'hyperbolic 2', 'hyperbolic 3']
+hs = [h_l2_dist, h_grid_dist, h_hyperbolic_1, h_hyperbolic_2, h_hyperbolic_3]
+hnames = ['circle', 'grid circle', 'hyperbolic 1',
+          'hyperbolic 2', 'hyperbolic 3']
 fig, axes = plt.subplots(1, len(hs))
 for h, name, hnum in zip(hs, hnames, range(len(hs))):
-
     graph = convert_img_to_graph(img, h)
+    start = time.time()
+
     new_graph, path, searched, path_length = a_star(
         graph, img_start_pt, img_goal_pt)
+    end = time.time()
+
+    print(name, end-start)
 
     ax = axes[hnum]
     ax.imshow(img)
@@ -263,5 +271,5 @@ for h, name, hnum in zip(hs, hnames, range(len(hs))):
                   " \nsearched: " + str(len(searched)))
     ax.plot(img_start_pt[0], img_start_pt[1], 'gs')
     ax.plot(img_goal_pt[0], img_goal_pt[1], 'r*')
-    ax.plot(searched[:, 0], searched[:, 1], '.')
+    # ax.plot(searched[:, 0], searched[:, 1], '.')
     ax.plot(path[:, 0], path[:, 1])
