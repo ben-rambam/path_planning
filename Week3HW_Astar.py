@@ -7,6 +7,7 @@ Created on Thu Jan 27 22:22:03 2022
 """
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import heapq
 import cv2
 import time
@@ -83,21 +84,25 @@ def convert_obstacles_to_image(obstacles, img_shape, start_pt, goal_pt):
     return img, new_start, new_goal
 
 
-def createMap(num_obstacles, size):
+def create_map(num_obstacles, obstacle_type, map_size):
     start_pt = np.array([-3, 3])
     goal_pt = np.array([3, -3])
     start_pt = np.random.uniform([-5, -5], [0, 5], 2)
     goal_pt = np.random.uniform([0, -5], [5, 5], 2)
     obstacles = generate_random_obstacles(
-        num_obstacles, "circles", start_pt, goal_pt)
+        num_obstacles, obstacle_type, start_pt, goal_pt)
     img, img_start_pt, img_goal_pt = convert_obstacles_to_image(
-        obstacles, (size, size), start_pt, goal_pt)
+        obstacles, (map_size, map_size), start_pt, goal_pt)
     return img, img_start_pt, img_goal_pt
 
 
 # %%
+"""
+mazes generated with https://www.mazegenerator.net/
+"""
 
-def loadMap(filename, cells):
+
+def load_map(filename, cells):
     img = cv2.cvtColor(cv2.imread(filename), cv2.COLOR_BGR2GRAY)/255.0
     img = img[1:-1, 1:-1]
     img = cv2.erode(img, kernel=np.ones(
@@ -117,8 +122,8 @@ def loadMap(filename, cells):
 # %%
 
 
-# img, img_start_pt, img_goal_pt = createMap(10, 160)
-img, img_start_pt, img_goal_pt = loadMap("40x40_orthogonal_maze.png", 40)
+img, img_start_pt, img_goal_pt = create_map(40, 'polygons', 160)
+# img, img_start_pt, img_goal_pt = load_map("40x40_orthogonal_maze.png", 40)
 print("img_start_pt", img_start_pt)
 print("img_goal_pt", img_goal_pt)
 
@@ -127,7 +132,7 @@ print("img_goal_pt", img_goal_pt)
 
 class Node():
     def __init__(self, hfunc):
-        self.neighbors = []
+        self.neighbors = {}
         self.g = np.Inf
         self.hfunc = hfunc
 
@@ -135,10 +140,11 @@ class Node():
         lt = False
         f1 = self.g+self.hfunc(np.array([self.x, self.y]))
         f2 = other.g+self.hfunc(np.array([other.x, other.y]))
-        if np.abs(f1-f2) < 0.001:
-            lt = self.g > other.g
-        else:
-            lt = f1 < f2
+        # if np.abs(f1-f2) < 0.001:
+        #     lt = self.g > other.g
+        # else:
+        #     lt = f1 < f2
+        lt = f1 < f2
         return lt
 
     def __eq__(self, other):
@@ -153,6 +159,10 @@ class Graph():
 
 def h_l2_dist(node):
     return np.linalg.norm(node-img_goal_pt)
+
+
+def h_sq_dist(node):
+    return (node[0] - img_goal_pt[0])**2 + (node[1]-img_goal_pt[1])**2
 
 
 def grid_dist(p1, p2):
@@ -193,6 +203,7 @@ def h_parallel_goal_dist(node):
 
 
 pairs = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]
+pairs = [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
 
 
 def convert_img_to_graph(img, h):
@@ -206,11 +217,23 @@ def convert_img_to_graph(img, h):
                 a = i+pair[0]
                 b = j+pair[1]
                 if a >= 0 and a < img.shape[1] and b >= 0 and b < img.shape[0] and img[b, a]*img[j, i] == 1:
-                    node.neighbors.append(np.linalg.norm(pair))
+                    node.neighbors[pair] = np.linalg.norm(pair)
                 else:
-                    node.neighbors.append(np.Inf)
+                    pass
+                    # node.neighbors.append(np.Inf)
             graph.nodes[(i, j)] = node
     return graph
+
+
+def retrace_path(curr_node, start_node):
+    path = [[curr_node.x, curr_node.y]]
+    path_length = 0
+    while curr_node != start_node:
+        path.insert(0, [curr_node.prev.x, curr_node.prev.y])
+        path_length += np.linalg.norm([curr_node.x -
+                                      curr_node.prev.x, curr_node.y-curr_node.prev.y])
+        curr_node = curr_node.prev
+    return np.array(path), path_length
 
 
 def a_star(graph, start, goal):
@@ -222,54 +245,147 @@ def a_star(graph, start, goal):
     start_node.goal = goal
     Q = [start_node]
     heapq.heapify(Q)
-    curr_node = heapq.heappop(Q)
     searched = []
-    while curr_node != goal_node:
+    count = 2
+    while len(Q) > 0:
+        curr_node = heapq.heappop(Q)
+        # if img_cp[curr_node.y, curr_node.x] > 1:
+        #     raise RuntimeError("this shouldn't happen")
+        img_cp[curr_node.y, curr_node.x] = count
+        count += 1
+
+        if curr_node == goal_node:
+            break
+
         searched.append([curr_node.x, curr_node.y])
-        for pair, weight in zip(pairs, curr_node.neighbors):
+        for pair in curr_node.neighbors:
             a = curr_node.x + pair[0]
             b = curr_node.y + pair[1]
+            weight = curr_node.neighbors[pair]
             try:
                 other_node = graph.nodes[a, b]
-                if curr_node.g + weight < other_node.g:
+                if curr_node.g + weight - other_node.g < -0.00000001:
+                    if img_cp[b, a] > 1:
+                        raise RuntimeError("This shouldn't happen")
                     other_node.g = curr_node.g + weight
-                    other_node.goal = goal
                     other_node.prev = curr_node
-                    heapq.heappush(Q, other_node)
-            except:
-                pass
-        curr_node = heapq.heappop(Q)
+                    if other_node not in Q:
+                        other_node.goal = goal
+                        heapq.heappush(Q, other_node)
+            except RuntimeError:
+                plt.imshow(img_cp)
+                for coords in searched:
+                    node = graph.nodes[tuple(coords)]
+                    path, pl = retrace_path(node, start_node)
+                    plt.plot(path[:, 0], path[:, 1],'k')
+                plt.plot(curr_node.x, curr_node.y, 'gs')
+                plt.plot(other_node.x, other_node.y, 'r*')
+                plt.plot(start_node.x, start_node.y, 'gs')
+                plt.plot(goal_node.x, goal_node.y, 'r*')
+                raise RuntimeError("This shouldn't happen")
 
-    path = [[curr_node.x, curr_node.y]]
-    path_length = 0
-    while curr_node != start_node:
-        path.insert(0, [curr_node.prev.x, curr_node.prev.y])
-        path_length += np.linalg.norm([curr_node.x -
-                                      curr_node.prev.x, curr_node.y-curr_node.prev.y])
-        curr_node = curr_node.prev
+    path, path_length = retrace_path(curr_node, start_node)
 
     return graph, np.array(path), np.array(searched), path_length
 
 
-hs = [h_l2_dist, h_grid_dist, h_hyperbolic_1, h_hyperbolic_2, h_hyperbolic_3]
-hnames = ['circle', 'grid circle', 'hyperbolic 1',
-          'hyperbolic 2', 'hyperbolic 3']
-fig, axes = plt.subplots(1, len(hs))
-for h, name, hnum in zip(hs, hnames, range(len(hs))):
-    graph = convert_img_to_graph(img, h)
-    start = time.time()
+img_cp = img.copy()
+graph = convert_img_to_graph(img_cp, h_l2_dist)
+start = img_start_pt
+goal = img_goal_pt
 
-    new_graph, path, searched, path_length = a_star(
-        graph, img_start_pt, img_goal_pt)
-    end = time.time()
+start = time.time()
+new_graph, path, searched, path_length = a_star(
+    graph, img_start_pt, img_goal_pt)
+end = time.time()
 
-    print(name, end-start)
+fig, ax = plt.subplots(1, 1)
+im = ax.imshow(img_cp)
+ax.set_xlabel("\nlength: {} \nsearched: {} \ntime: {}".format(
+    path_length, len(searched), end-start))
 
-    ax = axes[hnum]
-    ax.imshow(img)
-    ax.set_xlabel(name + "\nlength: " + str(path_length) +
-                  " \nsearched: " + str(len(searched)))
-    ax.plot(img_start_pt[0], img_start_pt[1], 'gs')
-    ax.plot(img_goal_pt[0], img_goal_pt[1], 'r*')
-    # ax.plot(searched[:, 0], searched[:, 1], '.')
-    ax.plot(path[:, 0], path[:, 1])
+ax.plot(img_start_pt[0], img_start_pt[1], 'gs')
+ax.plot(img_goal_pt[0], img_goal_pt[1], 'r*')
+# ax.plot(searched[:, 0], searched[:, 1], '.')
+ax.plot(path[:, 0], path[:, 1])
+plt.colorbar(im)
+
+
+def a_star_generator():
+    start_node = graph.nodes[start[0], start[1]]
+    start_node.g = 0
+
+    goal_node = graph.nodes[goal[0], goal[1]]
+
+    start_node.goal = goal
+    Q = [start_node]
+    heapq.heapify(Q)
+    searched = []
+    while len(Q) > 0:
+        curr_node = heapq.heappop(Q)
+        if img_cp[curr_node.y, curr_node.x] > 1:
+            raise RuntimeError("this shouldn't happen")
+        img_cp[curr_node.y, curr_node.x] += 1
+
+        if curr_node == goal_node:
+            break
+
+        searched.append([curr_node.x, curr_node.y])
+        for pair in curr_node.neighbors:
+            a = curr_node.x + pair[0]
+            b = curr_node.y + pair[1]
+            weight = curr_node.neighbors[pair]
+            try:
+                other_node = graph.nodes[a, b]
+                if curr_node.g + weight - other_node.g < -0.00000001:
+                    if img_cp[b, a] > 1:
+                        raise RuntimeError("This shouldn't happen")
+                    other_node.g = curr_node.g + weight
+                    other_node.prev = curr_node
+                    if other_node not in Q:
+                        other_node.goal = goal
+                        heapq.heappush(Q, other_node)
+            except RuntimeError:
+                raise RuntimeError("This shouldn't happen")
+
+    path, path_length = retrace_path(curr_node, start_node)
+
+    return graph, np.array(path), np.array(searched), path_length
+
+
+# def animFunc(data):
+
+#     pass
+
+
+# animation = mpl.animation.FuncAnimation(
+#     fig, animFunc, bug1.update, interval=20)
+
+# hs = [h_l2_dist, h_grid_dist, h_sq_dist,
+#       h_hyperbolic_1, h_hyperbolic_2, h_hyperbolic_3]
+# hnames = ['circle', 'grid circle', 'squared dist', 'hyperbolic 1',
+#           'hyperbolic 2', 'hyperbolic 3']
+# hs = [h_l2_dist, h_grid_dist]
+# hnames = ['circle', 'grid circle']
+# for h, name, hnum in zip(hs, hnames, range(len(hs))):
+#     img_cp = img.copy()
+#     graph = convert_img_to_graph(img, h)
+#     start = time.time()
+
+#     new_graph, path, searched, path_length = a_star(
+#         graph, img_start_pt, img_goal_pt)
+#     end = time.time()
+
+#     print(name, end-start)
+#     fig, ax = plt.subplots(1, 1)
+
+#     # ax = axes[hnum]
+#     im = ax.imshow(img_cp)
+#     ax.set_xlabel("{} \nlength: {} \nsearched: {} \ntime: {}".format(
+#         name, path_length, len(searched), end-start))
+
+#     ax.plot(img_start_pt[0], img_start_pt[1], 'gs')
+#     ax.plot(img_goal_pt[0], img_goal_pt[1], 'r*')
+#     # ax.plot(searched[:, 0], searched[:, 1], '.')
+#     ax.plot(path[:, 0], path[:, 1])
+#     plt.colorbar(im)

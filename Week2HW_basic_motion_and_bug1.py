@@ -210,7 +210,7 @@ bug1 = Bug1(start_pt, goal_pt, 0.05, obstacles2)
 
 start1, = ax1.plot(start_pt[0], start_pt[1], 'g.')
 goal1, = ax1.plot(goal_pt[0], goal_pt[1], 'r.')
-path1, = ax1.plot(start_pt[0], start_pt[1], 'k')
+path1, = ax1.plot(start_pt[0], start_pt[1], 'k', markevery=50)
 robot1, = ax1.plot(start_pt[0], start_pt[1], '.')
 for patch in obstacles1:
     ax1.add_patch(patch)
