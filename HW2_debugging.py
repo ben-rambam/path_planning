@@ -29,78 +29,6 @@ def fk(thetas):
     return np.array([(0, 0), (x1, y1), (x2, y2)])
 
 
-class Bug1():
-    def __init__(self, start_pt, goal_pt, ds, obstacles):
-        self.pos = start_pt
-        self.goal_pt = goal_pt
-        self.ds = ds
-        self.obstacles = obstacles
-
-    def update(self):
-        pos = self.pos
-        goal_pt = self.goal_pt
-        mode = "goal"
-        ds = self.ds
-        path_length = 0
-        theta = 0
-        path_x = [pos[0]]
-        path_y = [pos[1]]
-        obstacles = self.obstacles
-        while np.linalg.norm(pos-goal_pt) > ds:
-            if mode == "goal":
-                goal_vec = goal_pt-pos
-                theta = np.arctan2(goal_vec[1], goal_vec[0])
-                dir_vec = np.array([np.cos(theta), np.sin(theta)])
-                new_pos = pos + dir_vec*ds
-                if any(collision(new_pos, obs) for obs in obstacles):
-                    mode = "wall_start"
-
-                else:
-                    pos, path_length = step_forward(
-                        pos, theta, ds, path_length)
-                    path_x.append(pos[0])
-                    path_y.append(pos[1])
-
-                pass
-            elif mode == "wall_start":
-                theta = turn_left_till_free(pos, theta, ds, obstacles)
-                wall_start_pos = pos
-                close_pt = pos
-                close_dist = np.linalg.norm(close_pt-goal_pt)
-                pos, path_length = step_forward(
-                    pos, theta, ds*1.1, path_length)
-                path_x.append(pos[0])
-                path_y.append(pos[1])
-                mode = "wall"
-            elif mode == "wall":
-                # turn left until we see free space
-                theta = turn_left_till_free(pos, theta, ds, obstacles)
-                theta = turn_right_till_wall(pos, theta, ds, obstacles)
-                theta += 0.1
-                pos, path_length = step_forward(pos, theta, ds, path_length)
-                path_x.append(pos[0])
-                path_y.append(pos[1])
-                curr_dist = np.linalg.norm(pos-goal_pt)
-                if curr_dist < close_dist:
-                    close_dist = curr_dist
-                    close_pt = pos
-                if np.linalg.norm(pos-wall_start_pos) < ds:
-                    mode = "wall_finish"
-
-                pass
-            elif mode == "wall_finish":
-                theta = turn_left_till_free(pos, theta, ds, obstacles)
-                theta = turn_right_till_wall(pos, theta, ds, obstacles)
-                theta += 0.1
-                pos, path_length = step_forward(pos, theta, ds, path_length)
-                path_x.append(pos[0])
-                path_y.append(pos[1])
-                if np.linalg.norm(pos-close_pt) < ds:
-                    mode = "goal"
-
-            yield pos, theta, path_x, path_y
-
-
 def turn_left_till_free(pos, theta, ds, obstacles):
     dir_vec = np.array([np.cos(theta), np.sin(theta)])
     new_pos = pos + dir_vec*ds
@@ -143,7 +71,7 @@ def collision(thetas, obstacle):
     return manipulator.intersects(obstacle)
 
 
-def find_boundary_3(obstacles):
+def find_boundary(obstacles):
     pos = np.array([0., 0.])
     goal_pt = np.array([2*np.pi, 0])
     mode = "init"
@@ -152,21 +80,32 @@ def find_boundary_3(obstacles):
     theta = 0
     mode_changed = True
     obs_index = 0
-    while np.linalg.norm(pos-goal_pt) > ds:
+    zero_crossings = []
+    prev_mode = "none"
+    while abs(pos[0]-goal_pt[0]) > ds:
         should_yield = True
-        if mode_changed:
-            print("mode: {}".format(mode))
+        if mode != prev_mode:
+            print("mode: {} -> {}, {}".format(prev_mode, mode, pos))
+            prev_mode = mode
             mode_changed = False
 
         if mode == "goal":
             should_yield = False
-            goal_vec = goal_pt-pos
-            theta = np.arctan2(goal_vec[1], goal_vec[0])
-            dir_vec = np.array([np.cos(theta), np.sin(theta)])
+            dir_vec = np.array([1, 0])
             new_pos = pos + dir_vec*ds
+
             if any(collision(new_pos, obs) for obs in obstacles):
-                mode = "wall_start"
-                mode_changed = True
+                if any(abs(crossing[0]-new_pos[0]) < 2*ds for crossing in zero_crossings):
+                    mode = "cross_obstacle_then_goal"
+                    mode_changed = True
+                else:
+                    mode = "wall_start"
+                    mode_changed = True
+                    if all(crossing[0] > pos[0] for crossing in zero_crossings):
+                        zero_crossings = [pos.copy()]
+                    else:
+                        zero_crossings.append(pos.copy())
+                    print("zero crossing: {}".format(pos))
 
             else:
                 pos, path_length = step_forward(
@@ -182,26 +121,27 @@ def find_boundary_3(obstacles):
             pos, path_length = step_forward(
                 pos, theta, ds*1.1, path_length)
             mode = "wall"
-            mode_changed = True
         elif mode == "wall":
             # turn left until we see free space
             theta = turn_left_till_free(pos, theta, ds, obstacles)
             theta = turn_right_till_wall(pos, theta, ds, obstacles)
             theta += 0.1
+            old_pos = pos.copy()
             pos, path_length = step_forward(pos, theta, ds, path_length)
+            # print((old_pos[1]+np.pi)%(2*np.pi)-np.pi, (pos[1]+np.pi) % (2*np.pi)-np.pi)
+            if abs(old_pos[1] % (2*np.pi)-pos[1] % (2*np.pi)) > (2*np.pi-ds):
+                zero_crossings.append(pos.copy())
+                print("zero crossing: {}".format(pos))
             curr_dist = np.linalg.norm(pos-goal_pt)
             if curr_dist < close_dist:
                 close_dist = curr_dist
                 close_pt = pos
-            if np.linalg.norm(pos-wall_start_pos) < ds:
+            if np.linalg.norm(pos-wall_start_pos) < 2*ds:
                 mode = "cross_obstacle_then_goal"
-                mode_changed = True
-            if np.linalg.norm(pos - np.array([0, 2*np.pi+ds]) - wall_start_pos) < ds:
+            if np.linalg.norm(pos - np.array([0, 2*np.pi+ds]) - wall_start_pos) < 2*ds:
                 mode = "cross_obstacle_then_wall"
-                mode_changed = True
-            if np.linalg.norm(pos - np.array([0, -2*np.pi+ds]) - wall_start_pos) < ds:
+            if np.linalg.norm(pos - np.array([0, -2*np.pi+ds]) - wall_start_pos) < 2*ds:
                 mode = "goal"
-                mode_changed = True
 
             pass
         elif mode == "cross_obstacle_then_wall":
@@ -212,7 +152,6 @@ def find_boundary_3(obstacles):
             pos, path_length = step_forward(pos, theta, ds, path_length)
             if not any(collision(pos, obs) for obs in obstacles):
                 mode = "wall_start"
-                mode_changed = True
         elif mode == "cross_obstacle_then_goal":
             should_yield = False
             theta = 0
@@ -223,7 +162,6 @@ def find_boundary_3(obstacles):
 
             if not any(collision(pos, obs) for obs in obstacles):
                 mode = "goal"
-                mode_changed = True
                 obs_index += 1
         elif mode == "init":
             should_yield = False
@@ -236,8 +174,8 @@ def find_boundary_3(obstacles):
                 mode = "goal"
                 goal_pt = np.array([new_pos[0]+2*np.pi, 0])
                 mode_changed = True
-        if should_yield:
-            yield pos, obs_index
+        # if should_yield:
+        yield pos, obs_index
 
 
 # %%
@@ -247,7 +185,7 @@ boundary_t1 = []
 boundary_t2 = []
 
 
-def anim_func_3(data):
+def anim_func(data):
     pos, obj_index = data
     boundary_t1.append(pos[0])
     boundary_t2.append(pos[1])
@@ -255,18 +193,6 @@ def anim_func_3(data):
     l1.set_data(joints[:, 0], joints[:, 1])
     p2.set_data(pos[0], pos[1])
     l2.set_data(boundary_t1, boundary_t2)
-
-
-def anim_func(data):
-    joints = data[0]
-    thetas = data[1]
-    l1.set_data(joints[:, 0], joints[:, 1])
-    p2.set_data(thetas[0], thetas[1])
-    boundary_t1.append(thetas[0])
-    boundary_t2.append(thetas[1])
-    l2.set_data(boundary_t1, boundary_t2)
-
-    return l1, p2, l2
 
 
 circle = geom.Point(11, 11).buffer(4)
@@ -295,32 +221,41 @@ ax1.set_ylim(-10, 16)
 ax2.set_xlim(-20, 20)
 ax2.set_ylim(-20, 20)
 
-y = find_boundary_3(obstacles)
-animation = anim.FuncAnimation(fig, anim_func_3, y, interval=2)
+y = find_boundary(obstacles)
+animation = anim.FuncAnimation(fig, anim_func, y, interval=2)
 plt.show()
 
 # %%
-obstacles = [circle, circle_2]
+obstacles = [circle, quad_3]
 fig, ax = plt.subplots()
 
-y = find_boundary_3(obstacles)
-pos, theta, path_x, path_y = next(y)
-boundary_pts = [pos.copy()]
-for pos, theta, path_x, path_y in y:
+y = find_boundary(obstacles)
+pos, obs_index = next(y)
+boundary_pts = [[pos.copy()]]
+for pos, obs_index in y:
     if np.linalg.norm(pos-boundary_pts[-1]) > 0.05:
-        boundary_pts.append(pos.copy())
+        try:
+            boundary_pts[obs_index].append(pos.copy())
+        except IndexError:
+            boundary_pts.append([])
+            boundary_pts[obs_index].append(pos.copy())
+
+obs_q = []
 boundary_pts = np.array(boundary_pts)
-obs_q = geom.Polygon(boundary_pts)
+for boundary in boundary_pts:
+    obs_q.append(geom.Polygon(boundary))
 
 offsets = [2*np.pi, 0, -2*np.pi]
-offsets = [0]
+# offsets = [0]
 for x_offset in offsets:
     for y_offset in offsets:
-        new_bound = np.array(
-            [boundary_pts[:, 0]+x_offset, boundary_pts[:, 1]+y_offset]).T
-        polygon = geom.Polygon(new_bound)
-        patch = dc.PolygonPatch(polygon)
-        ax.add_patch(patch)
+        for boundary in boundary_pts:
+            boundary = np.array(boundary)
+            new_bound = np.array(
+                [boundary[:, 0]+x_offset, boundary[:, 1]+y_offset]).T
+            polygon = geom.Polygon(new_bound)
+            patch = dc.PolygonPatch(polygon)
+            ax.add_patch(patch)
         # plt.plot(boundary_pts[:,0]+x_offset, boundary_pts[:,1]+y_offset)
 
 plt.xlim([-6*np.pi, 6*np.pi])
