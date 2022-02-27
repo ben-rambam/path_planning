@@ -277,7 +277,7 @@ def a_star(graph, start, goal):
                 for coords in searched:
                     node = graph.nodes[tuple(coords)]
                     path, pl = retrace_path(node, start_node)
-                    plt.plot(path[:, 0], path[:, 1],'k')
+                    plt.plot(path[:, 0], path[:, 1], 'k')
                 plt.plot(curr_node.x, curr_node.y, 'gs')
                 plt.plot(other_node.x, other_node.y, 'r*')
                 plt.plot(start_node.x, start_node.y, 'gs')
@@ -389,3 +389,87 @@ def a_star_generator():
 #     # ax.plot(searched[:, 0], searched[:, 1], '.')
 #     ax.plot(path[:, 0], path[:, 1])
 #     plt.colorbar(im)
+
+
+# %% depth_first search A* broken
+def a_star_2(graph, start, goal, max_iter=np.Inf):
+    start_node = graph.nodes[start[0], start[1]]
+    start_node.g = 0
+
+    goal_node = graph.nodes[goal[0], goal[1]]
+
+    start_node.goal = goal
+    # examine neighbors
+    # if a neighbor has a heuristic smaller than mine
+    #  go to neighbor with smallest heuristic
+    # else
+    #  remove self from neighbors of prev
+    #  go to prev
+    searched = []
+    curr_node = start_node
+    path = [curr_node]
+    count = 0
+    while curr_node != goal_node and count < max_iter:
+        curr_h = curr_node()
+        searched.append([curr_node.x, curr_node.y])
+        count += 1
+        min_h = curr_h
+        min_pair = (0, 0)
+        min_node = curr_node
+        for pair in curr_node.neighbors:
+            a = curr_node.x + pair[0]
+            b = curr_node.y + pair[1]
+            weight = curr_node.neighbors[pair]
+            other_node = graph.nodes[a, b]
+            other_h = other_node()
+            if other_h < min_h:
+                min_h = other_h
+                min_pair = pair
+                min_node = other_node
+        if min_pair == (0, 0):
+            prev_node = curr_node.prev
+            prev_pair = (curr_node.x-prev_node.x, curr_node.y-prev_node.y)
+            del prev_node.neighbors[prev_pair]
+            curr_node = prev_node
+        else:
+            min_node.prev = curr_node
+            curr_node = min_node
+
+    if False and len(Q) == 0:
+        print("No solution found")
+        return graph, np.array([[start_node.x, start_node.y]]), np.array(searched), 0
+    path = [[curr_node.x, curr_node.y]]
+    path_length = 0
+    while curr_node != start_node:
+        path.insert(0, [curr_node.prev.x, curr_node.prev.y])
+        path_length += np.linalg.norm([curr_node.x -
+                                      curr_node.prev.x, curr_node.y-curr_node.prev.y])
+        curr_node = curr_node.prev
+
+    return graph, np.array(path), np.array(searched), path_length
+
+
+start_pt = np.array([-3, 0])
+goal_pt = np.array([3, 0])
+#obstacles = [plt.Rectangle([-1,-1],2,2)]
+# img, img_start_pt, img_goal_pt = convert_obstacles_to_image(
+#    obstacles, (40, 40), start_pt, goal_pt)
+img_cp = img.copy()
+h_name = "grid dist"
+graph = convert_img_to_graph(img_cp, h_grid_dist)
+
+start = time.time()
+new_graph, path, searched, path_length = a_star_2(
+    graph, img_start_pt, img_goal_pt)
+end = time.time()
+
+print(h_name, end-start)
+fig, ax = plt.subplots()
+
+im = ax.imshow(img_cp)
+ax.set_title("heuristic: {} \nlength: {} \nsearched: {} \ntime: {}".format(
+    h_name, path_length, len(searched), end-start))
+ax.plot(searched[:, 0], searched[:, 1], 'x')
+ax.plot(path[:, 0], path[:, 1])
+ax.plot(img_start_pt[0], img_start_pt[1], 'gs')
+ax.plot(img_goal_pt[0], img_goal_pt[1], 'r*')
